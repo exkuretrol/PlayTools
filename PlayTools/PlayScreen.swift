@@ -11,6 +11,19 @@ let mainScreenWidth =  !isInvertFixEnabled ? PlaySettings.shared.windowSizeWidth
 let mainScreenHeight = !isInvertFixEnabled ? PlaySettings.shared.windowSizeHeight : PlaySettings.shared.windowSizeWidth
 let customScaler = PlaySettings.shared.customScaler
 
+// True when the app only declares portrait orientations. Such apps need a portrait scene frame
+// that matches the portrait window, instead of the swapped (landscape) one landscape games get.
+let isPortraitOnlyApp: Bool = {
+    let info = Bundle.main.infoDictionary ?? [:]
+    let keys = ["UISupportedInterfaceOrientations~ipad", "UISupportedInterfaceOrientations"]
+    for key in keys {
+        if let orientations = info[key] as? [String], !orientations.isEmpty {
+            return !orientations.contains { $0.contains("Landscape") }
+        }
+    }
+    return false
+}()
+
 extension CGSize {
     func aspectRatio() -> CGFloat {
         if mainScreenWidth > mainScreenHeight {
@@ -100,7 +113,7 @@ public class PlayScreen: NSObject {
     }
 
     @objc public static func frame(_ rect: CGRect) -> CGRect {
-        return rect.toAspectRatioReversed()
+        return isPortraitOnlyApp ? rect.toAspectRatio() : rect.toAspectRatioReversed()
     }
 
     @objc public static func bounds(_ rect: CGRect) -> CGRect {
