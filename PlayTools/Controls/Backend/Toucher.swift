@@ -28,7 +28,11 @@ class Toucher {
             }
             tid = -1
             keyWindow = screen.keyWindow
-            keyView = keyWindow!.hitTest(point, with: nil)
+            guard let window = keyWindow else {
+                tid = nil
+                return
+            }
+            keyView = window.hitTest(point, with: nil)
         } else if tid == nil {
             return
         }

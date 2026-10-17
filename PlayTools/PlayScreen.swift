@@ -165,11 +165,13 @@ public class PlayScreen: NSObject {
     }
 
     var keyWindow: UIWindow? {
-        return UIApplication
+        let fromScenes = UIApplication
             .shared
             .connectedScenes
             .flatMap { ($0 as? UIWindowScene)?.windows ?? [] }
             .first { $0.isKeyWindow }
+        // Some apps end up with a key window while connectedScenes is empty
+        return fromScenes ?? UIApplication.shared.windows.first { $0.isKeyWindow } ?? UIApplication.shared.windows.first
     }
 
     var windowScene: UIWindowScene? {
@@ -177,11 +179,12 @@ public class PlayScreen: NSObject {
     }
 
     var window: UIWindow? {
-        return UIApplication.shared.connectedScenes
+        let fromScenes = UIApplication.shared.connectedScenes
             .filter({$0.activationState == .foregroundActive})
             .compactMap({$0 as? UIWindowScene})
             .first?.windows
             .filter({$0.isKeyWindow}).first
+        return fromScenes ?? keyWindow
     }
 
     var nsWindow: NSObject? {
