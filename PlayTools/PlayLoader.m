@@ -216,6 +216,34 @@ DYLD_INTERPOSE(pt_SecKeyGeneratePair, SecKeyGeneratePair)
 
 static uint8_t ue_status = 0;
 
+// A game may rebind `open` & co. in every loaded image, PlayTools included. Calling the imported
+// symbols from the wrappers below would then re-enter the game's hook, whose saved "original" is
+// the wrapper itself (infinite recursion). Capture the real functions before any app code can.
+// `volatile` stops the compiler from folding the pointers back into direct calls.
+static int (*volatile real_open)(const char*, int, ...);
+static int (*volatile real_stat)(const char* restrict, struct stat* restrict);
+static int (*volatile real_access)(const char*, int);
+static int (*volatile real_rename)(const char* restrict, const char* restrict);
+static int (*volatile real_unlink)(const char*);
+static int (*volatile real_usleep)(useconds_t);
+
+static void capture_real_functions(void) {
+    real_open = (void*)open;
+    real_stat = (void*)stat;
+    real_access = (void*)access;
+    real_rename = (void*)rename;
+    real_unlink = (void*)unlink;
+    real_usleep = (void*)usleep;
+}
+
+// The wrappers can run before any constructor of this image (libSystem's own initializers already
+// call stat/open), so they also capture lazily. Both points precede any rebinding by the app.
+static void __attribute__((constructor(101))) capture_real_functions_early(void) {
+    capture_real_functions();
+}
+
+#define PT_ENSURE_REAL() do { if (!real_open) capture_real_functions(); } while (0)
+
 static char const* ue_fix_filename(char const* filename) {
     static char UE_PATTERN[1024] = "//Users/";
     getlogin_r(UE_PATTERN + 8, sizeof(UE_PATTERN) - 8);
@@ -234,6 +262,7 @@ static char const* ue_fix_filename(char const* filename) {
 }
 
 static int pt_open(char const* restrict filename, int oflag, ... ) {
+    PT_ENSURE_REAL();
     filename = ue_fix_filename(filename);
 
     if (oflag == O_CREAT) {
@@ -243,26 +272,30 @@ static int pt_open(char const* restrict filename, int oflag, ... ) {
         mod = va_arg(ap, int);
         va_end(ap);
 
-        return open(filename, O_CREAT, mod);
+        return real_open(filename, O_CREAT, mod);
     }
 
-    return open(filename, oflag);
+    return real_open(filename, oflag);
 }
 
 static int pt_stat(char const* restrict path, struct stat* restrict buf) {
-    return stat(ue_fix_filename(path), buf);
+    PT_ENSURE_REAL();
+    return real_stat(ue_fix_filename(path), buf);
 }
 
 static int pt_access(char const* path, int mode) {
-    return access(ue_fix_filename(path), mode);
+    PT_ENSURE_REAL();
+    return real_access(ue_fix_filename(path), mode);
 }
 
 static int pt_rename(char const* restrict old_name, char const* restrict new_name) {
-    return rename(ue_fix_filename(old_name), ue_fix_filename(new_name));
+    PT_ENSURE_REAL();
+    return real_rename(ue_fix_filename(old_name), ue_fix_filename(new_name));
 }
 
 static int pt_unlink(char const* path) {
-    return unlink(ue_fix_filename(path));
+    PT_ENSURE_REAL();
+    return real_unlink(ue_fix_filename(path));
 }
 
 static NSMutableDictionary *thread_sleep_counters = nil;
@@ -271,6 +304,7 @@ static dispatch_once_t thread_sleep_once;
 static NSLock *thread_sleep_lock = nil;
 
 static int pt_usleep(useconds_t time) {
+    PT_ENSURE_REAL();
     dispatch_once(&thread_sleep_once, ^{
         thread_sleep_counters = [NSMutableDictionary dictionary];
         last_sleep_attempts = [NSMutableDictionary dictionary];
@@ -316,7 +350,7 @@ static int pt_usleep(useconds_t time) {
         }
     }
     
-    return usleep(time);
+    return real_usleep(time);
 }
 
 
